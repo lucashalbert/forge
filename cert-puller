@@ -1,0 +1,213 @@
+#!/bin/sh
+
+# the following variables can be overridden by the config file
+CERT_DST="/opt/work/ssl"
+CERT_SERVER="https://certs.example.org/certs"
+
+# a space separated list of domains for which certs will be downloads
+MYCERTS="example.com"
+
+# a space separated list of services to restart
+SERVICES="httpd"
+
+DOWNLOAD_DIR="/opt/work/forge/var"
+
+# be sure to specify the agument & have no spaces in between the single quotes
+USER_AGENT="forge-cert-puller"
+
+
+# --quiet avoids noise
+CURL="/bin/curl --silent --user-agent '${USER_AGENT}' --remote-time"
+WGET="/bin/wget --quiet --user-agent='${USER_AGENT}'"
+
+# items above can be overridden via the configuration file
+# items below here are not usually altered
+
+CONFIG="/opt/work/forge/etc/cert-puller.conf"
+
+if [ -f ${CONFIG} ]; then
+  . ${CONFIG}
+fi
+
+
+# initialize variables used below
+
+SUDO_EXAMPLES=0
+NEW_CERTS_FOUND=0
+
+# various commands used by this script
+BASENAME="/bin/basename"
+CP="/bin/cp"
+DIFF="/bin/diff"
+# These are the downlaoded certs which we will consider for installation
+FIND_CERT_FILES="/bin/find ${DOWNLOAD_DIR} -type f"
+
+# if you want to disable logging, not recommend, put a hash before /bin
+LOGGER="/bin/logger -t cert-puller"
+MV="/bin/mv"
+SERVICE="/sbin/service"
+SUDO="/bin/sudo"
+TOUCH="/bin/touch"
+
+usage(){
+  echo "Usage: $0 [-s] [-h]"
+  exit 1
+}
+
+sudo_examples(){
+  # this function prints out commands which you can use with visudo to copy/paste
+
+  #
+  # NOTE: the code here must closely match that within install_new_certs() & restart_services()
+  #
+  for cert in ${MYCERTS}
+  do
+    FILES_FETCHING="ca.cer ${cert}.cer ${cert}.fullchain.cer"
+    for file in ${FILES_FETCHING}
+    do
+      echo "forge   ALL=(ALL) NOPASSWD:${CP} -a ${DOWNLOAD_DIR}/${file} ${CERT_DST}/${file}.tmp"
+      echo "forge   ALL=(ALL) NOPASSWD:${MV} ${CERT_DST}/${file}.tmp ${CERT_DST}/${file}"
+    done
+  done
+
+  for service in ${SERVICES}
+  do
+    case ${service} in
+      "dovecot"|"postfix"|"nginx"|"httpd")
+        echo "forge   ALL=(ALL) NOPASSWD:${SERVICE} ${service} restart"
+        ;;
+    esac
+  done
+}
+
+sanity_checks(){
+  if [ ! -r "${CERT_DST}" -o ! -d "${CERT_DST}" ]; then
+    ${LOGGER} "${CERT_DST} is NOT readable and a directory"
+    ${LOGGER} "$0 exits"
+    exit 2
+  fi
+}
+
+fetch_new_certs(){
+  # first, we fetch the certs are looking for.
+  ${LOGGER} "fetching into ${DOWNLOAD_DIR}"
+  for cert in ${MYCERTS}
+  do
+    ${LOGGER} "checking certs for ${cert}"
+    FILES_FETCHING="ca.cer ${cert}.cer ${cert}.fullchain.cer"
+    for file in ${FILES_FETCHING}
+    do
+      ${LOGGER}         "${cert} :: ${file}"
+      case ${FETCH_TOOL} in
+        "wget")
+          ${LOGGER} "running: ${WGET} --output-document=${DOWNLOAD_DIR}/${file} ${CERT_SERVER}/${cert}/${file}"
+          ${WGET} --output-document=${DOWNLOAD_DIR}/${file} ${CERT_SERVER}/${cert}/${file}
+          ;;
+        *)
+          ${LOGGER} "running: ${CURL} -o ${DOWNLOAD_DIR}/${file} ${CERT_SERVER}/${cert}/${file}"
+          ${CURL} -o ${DOWNLOAD_DIR}/${file} ${CERT_SERVER}/${cert}/${file}
+          ;;
+      esac
+      RESULT=$?
+      if [ "${RESULT}" != "0" ]; then
+        ${LOGGER} "error '${RESULT}' on fetch - perhaps the remote file does not exist."
+      fi
+    done
+  done
+}
+
+install_new_certs(){
+  ${LOGGER} "looking for cert files: ${FIND_CERT_FILES}"
+  # for each new thing we find, move it over to the right place
+  NEW_FILES=`${FIND_CERT_FILES}`
+  for new_file in ${NEW_FILES}
+  do
+    filename=`${BASENAME} ${new_file}`
+    ${LOGGER} "validating ${filename}"
+
+    # that cert may not be installed
+    if [ -f ${CERT_DST}/${filename} ]; then
+      diff=`${DIFF} ${new_file} ${CERT_DST}/${filename}`
+    else
+      diff="x";
+      ${LOGGER} "${filename} does not exist and will be installed"
+    fi
+
+    # only install if the certs are different.
+    if [ "${diff}X" != "X" ]; then
+      ${LOGGER} "installing ${filename}"
+      #
+      # NOTE: the code here must closely match that within sudo_examples() & restart_services()
+      #
+      ${SUDO} ${CP} -a ${new_file} ${CERT_DST}/${filename}.tmp
+      ${SUDO} ${MV} ${CERT_DST}/${filename}.tmp ${CERT_DST}/${filename}
+      NEW_CERTS_FOUND=1
+    fi
+  done
+}
+
+
+restart_services(){
+  #
+  # NOTE: the code here must closely match that within sudo_examples() & install_new_certs()
+  #
+  for service in ${SERVICES}
+  do
+    case ${service} in
+      # it might be better if we do a reload.
+      # will that be sufficient?
+      "dovecot"|"postfix"|"nginx"|"httpd")
+        ${LOGGER} "restarting ${service}"
+        ${SUDO} ${SERVICE} ${service} restart
+        ;;
+
+      *)
+        ${LOGGER} "Unknown service requested in $0: ${service}"
+        ;;
+    esac
+  done
+}
+
+#
+# main code starts here
+#
+
+while getopts "hs" opt; do
+  case $opt in
+    s)
+      SUDO_EXAMPLES=1
+      shift
+      ;;
+    h)
+      usage
+      shift
+      ;;
+    * )
+      usage
+      ;;
+  esac
+done
+
+#
+# give them samples for visudo
+#
+if [ ${SUDO_EXAMPLES} == "1" ]; then
+  sudo_examples
+  exit 1
+fi
+
+${LOGGER} "starting $0"
+
+sanity_checks
+
+fetch_new_certs
+
+install_new_certs
+
+if [ ${NEW_CERTS_FOUND} == "1" ]; then
+  restart_services
+else
+  ${LOGGER} "no new certs found"
+fi
+
+${LOGGER} "stopping $0"
