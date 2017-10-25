@@ -39,8 +39,7 @@ NEW_CERTS_FOUND=0
 BASENAME="/bin/basename"
 CP="/bin/cp"
 DIFF="/bin/diff"
-# These are the downlaoded certs which we will consider for installation
-FIND_CERT_FILES="/bin/find ${DOWNLOAD_DIR} -type f -name *.cer"
+FIND="/bin/find"
 
 # if you want to disable logging, not recommend, put a hash before /bin
 LOGGER="/bin/logger -t cert-puller"
@@ -117,9 +116,9 @@ fetch_new_certs(){
 }
 
 install_new_certs(){
-  ${LOGGER} "looking for cert files: ${FIND_CERT_FILES}"
+  ${LOGGER} "looking for cert files: ${FIND} ${DOWNLOAD_DIR} -type f -name '*.cer'"
   # for each new thing we find, move it over to the right place
-  NEW_FILES=`${FIND_CERT_FILES}`
+  NEW_FILES=$(${FIND} ${DOWNLOAD_DIR} -type f -name '*.cer')
   for new_file in ${NEW_FILES}
   do
     filename=`${BASENAME} ${new_file}`
