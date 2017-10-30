@@ -54,7 +54,6 @@ Said user will also need sudo rights to cp and mv within CERT_DST.
 Default configuration files are in /opt/work/forge/etc/
 
 
-## [NOTE] cert-shifter has not yet been ported to Linux
 Variables which can be set in cert-shifter.conf:
 
 ```
@@ -64,7 +63,6 @@ CERT_DST_CERTS="${CERT_DST_ROOT}/certs"
 TMP="${CERT_DST_ROOT}/tmp"
 ```
 
-## [NOTE] cert-puller has been ported to linux
 Variables which can be set in cert-puller.conf:
 
 ```
@@ -79,7 +77,7 @@ WGET="/usr/local/bin/wget --quiet --user-agent='${USER_AGENT}'"
 
 ```
 
-Services which can be restarted by this code: httpd, dovecot, postfix.
+Services which can be restarted by this code: httpd, nginx, dovecot, postfix.
 
 To use wget, set FETCH_TOOL="wget" in cert-puller.conf
 
