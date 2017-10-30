@@ -1,41 +1,42 @@
 #!/bin/sh
 
-CERT_SRC="/var/db/acme/certs"
+CERT_SRC="/opt/work/acme/certs"
 
-CERT_DST_ROOT="/var/db/certs-for-rsync"
+CERT_DST_ROOT="/opt/data/certs-for-rsync"
 CERT_DST_CERTS="${CERT_DST_ROOT}/certs"
 
 TMP="${CERT_DST_ROOT}/tmp"
 
 # items below here are not usually altered
 
-CONFIG="/usr/local/etc/anvil/cert-shifter.conf"
+CONFIG="/opt/work/forge/etc/cert-shifter.conf"
 
 if [ -f ${CONFIG} ]; then
   . ${CONFIG}
 fi
 
-BASENAME="/usr/bin/basename"
+BASENAME="/bin/basename"
 CP="/bin/cp"
-FIND="/usr/bin/find"
-GREP="/usr/bin/grep"
-LOGGER="/usr/bin/logger -t cert-shifter"
+FIND="/bin/find"
+GREP="/bin/grep"
+LOGGER="/bin/logger -t cert-shifter"
 MKDIR="/bin/mkdir"
 MV="/bin/mv"
 RMDIR="/bin/rmdir"
-SYSRC="/usr/sbin/sysrc"
+SYSTEMCTL="/bin/systemctl"
+#SYSRC="/sbin/sysrc"
 
-${LOGGER} starting $0
+${LOGGER} "starting $0"
 
 # find directories modified in the past 24 hours, assuming this script runs once a day
-DIRS=`${FIND} ${CERT_SRC} -mtime -1 -type d -d 1`
+DIRS=$(${FIND} ${CERT_SRC} -depth -mindepth 1 -mtime -1 -type d)
 for dir in ${DIRS}
 do
-  cert=`${BASENAME} ${dir}`
+  cert=$(${BASENAME} ${dir})
   # check the cert config file & ignore anything from staging
-  STAGING_USED=`${SYSRC} -qnf ${CERT_SRC}/${cert}/${cert}.conf Le_API | ${GREP} staging`
+  STAGING_USED=$(${GREP} '^Le_API' ${CERT_SRC}/${cert}/${cert}.conf | ${GREP} staging)
   if [ ! ${STAGING_USED} ]; then
-    ${LOGGER} collecting from ${dir}
+    ${LOGGER} "collecting from ${dir}"
 
     # this is not staging
     ${MKDIR} ${TMP}/${cert}
@@ -55,8 +56,8 @@ do
       ${MV} ${TMP}/${cert} ${CERT_DST_CERTS}/
     fi
   else
-    ${LOGGER} ignoring cert from ${dir} because it is STAGING
+    ${LOGGER} "ignoring cert from ${dir} because it is STAGING"
   fi
 done
 
-${LOGGER} stopping $0
+${LOGGER} "stopping $0"
